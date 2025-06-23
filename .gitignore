@@ -1,8 +1,10 @@
 # Byte-compiled / optimized / DLL files
-#git commit -m "Initial commit, Backend Set up, frontend next"
 __pycache__/
 *.py[cod]
 *$py.class
+
+# My files
+idea.txt
 
 # Django stuff:
 *.log
