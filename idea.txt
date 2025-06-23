@@ -1,0 +1,363 @@
+# **Phase 2: System Design (Detailed Technical Guide)**
+## **Building a Ticketing System with Django (Backend) + React Native (Frontend) + Tailwind CSS**  
+
+This guide provides a **step-by-step technical breakdown** of **Phase 2 (System Design)** for a ticketing system using:  
+- **Backend**: Django (Python) + Django REST Framework (DRF)  
+- **Frontend**: React Native (Expo) + Tailwind CSS (via `nativewind`)  
+- **Database**: PostgreSQL  
+- **Auth**: JWT (SimpleJWT)  
+
+---
+
+## **Step 1: System Architecture Overview**
+### **High-Level Design**
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│ React Native    │ ←→ │ Django REST API │ ←→ │ PostgreSQL      │
+│ (Expo + Tailwind│    │ (DRF + JWT)     │    │ (Database)      │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+       ↑
+       │ (Mobile/Web)
+       ↓
+┌─────────────────┐
+│ Firebase/SendGrid│ (Notifications)
+└─────────────────┘
+```
+
+---
+
+## **Step 2: Backend (Django) Setup**
+### **1. Initialize Django Project**
+```bash
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # (Linux/Mac) | venv\Scripts\activate (Windows)
+
+# Install Django & DRF
+pip install django djangorestframework django-rest-framework-simplejwt psycopg2-binary
+
+# Start project
+django-admin startproject ticketing_system
+cd ticketing_system
+python manage.py startapp tickets
+```
+
+### **2. Configure `settings.py`**
+```python
+# ticketing_system/settings.py
+
+INSTALLED_APPS = [
+    ...,
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'tickets',
+]
+
+# Database (PostgreSQL)
+DATABASES = {
+    'default': {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'ticketing_db',
+        'USER': 'postgres',
+        'PASSWORD': 'yourpassword',
+        'HOST': 'localhost',
+        'PORT': '5432',
+    }
+}
+
+# JWT Authentication
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+}
+```
+
+### **3. Define Models (`models.py`)**
+```python
+# tickets/models.py
+from django.db import models
+from django.contrib.auth.models import User
+
+class Ticket(models.Model):
+    STATUS_CHOICES = [
+        ('Open', 'Open'),
+        ('In Progress', 'In Progress'),
+        ('Resolved', 'Resolved'),
+        ('Closed', 'Closed'),
+    ]
+    PRIORITY_CHOICES = [
+        ('Low', 'Low'),
+        ('Medium', 'Medium'),
+        ('High', 'High'),
+    ]
+
+    title = models.CharField(max_length=200)
+    description = models.TextField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='Open')
+    priority = models.CharField(max_length=20, choices=PRIORITY_CHOICES, default='Medium')
+    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='created_tickets')
+    assigned_to = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='assigned_tickets')
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+class Comment(models.Model):
+    ticket = models.ForeignKey(Ticket, on_delete=models.CASCADE, related_name='comments')
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+    text = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+```
+
+### **4. Create Serializers (`serializers.py`)**
+```python
+# tickets/serializers.py
+from rest_framework import serializers
+from .models import Ticket, Comment
+from django.contrib.auth.models import User
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'email']
+
+class CommentSerializer(serializers.ModelSerializer):
+    author = UserSerializer(read_only=True)
+    class Meta:
+        model = Comment
+        fields = '__all__'
+
+class TicketSerializer(serializers.ModelSerializer):
+    created_by = UserSerializer(read_only=True)
+    assigned_to = UserSerializer(read_only=True)
+    comments = CommentSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = Ticket
+        fields = '__all__'
+```
+
+### **5. Build Views (`views.py`)**
+```python
+# tickets/views.py
+from rest_framework import viewsets, permissions
+from .models import Ticket, Comment
+from .serializers import TicketSerializer, CommentSerializer
+from rest_framework_simplejwt.authentication import JWTAuthentication
+
+class TicketViewSet(viewsets.ModelViewSet):
+    queryset = Ticket.objects.all()
+    serializer_class = TicketSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(created_by=self.request.user)
+
+class CommentViewSet(viewsets.ModelViewSet):
+    queryset = Comment.objects.all()
+    serializer_class = CommentSerializer
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [permissions.IsAuthenticated]
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+```
+
+### **6. Set Up URLs (`urls.py`)**
+```python
+# tickets/urls.py
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+from .views import TicketViewSet, CommentViewSet
+
+router = DefaultRouter()
+router.register(r'tickets', TicketViewSet)
+router.register(r'comments', CommentViewSet)
+
+urlpatterns = [
+    path('', include(router.urls)),
+]
+
+# ticketing_system/urls.py
+from django.contrib import admin
+from django.urls import path, include
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('api/', include('tickets.urls')),
+    path('api/auth/', include('rest_framework.urls')),
+]
+```
+
+### **7. Run Migrations & Test API**
+```bash
+python manage.py makemigrations
+python manage.py migrate
+python manage.py createsuperuser  # Create admin user
+python manage.py runserver
+```
+- Test API at `http://localhost:8000/api/tickets/` (Use Postman/Thunder Client).
+
+---
+
+## **Step 3: Frontend (React Native + Tailwind CSS) Setup**
+### **1. Initialize React Native (Expo)**
+```bash
+npx create-expo-app ticketing-app
+cd ticketing-app
+npx expo install react-native-web@~0.19.6 react-dom@18.2.0 @expo/webpack-config@^19.0.0
+npm install @react-navigation/native @react-navigation/stack
+npm install axios  # For API calls
+npm install nativewind  # Tailwind CSS for React Native
+npm install @react-native-async-storage/async-storage  # For JWT storage
+```
+
+### **2. Configure `nativewind` (Tailwind)**
+Update `babel.config.js`:
+```js
+module.exports = function (api) {
+  api.cache(true);
+  return {
+    presets: ['babel-preset-expo'],
+    plugins: ["nativewind/babel"],
+  };
+};
+```
+
+### **3. Create API Service (`api.js`)**
+```js
+// src/services/api.js
+import axios from 'axios';
+
+const API_URL = 'http://localhost:8000/api';
+
+export const getTickets = async (token) => {
+  const response = await axios.get(`${API_URL}/tickets/`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.data;
+};
+
+export const createTicket = async (ticketData, token) => {
+  const response = await axios.post(`${API_URL}/tickets/`, ticketData, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  return response.data;
+};
+```
+
+### **4. Build Screens (Example: `TicketList.js`)**
+```jsx
+// src/screens/TicketList.js
+import React, { useEffect, useState } from 'react';
+import { View, Text, FlatList, TouchableOpacity } from 'react-native';
+import { getTickets } from '../services/api';
+import { useAuth } from '../context/AuthContext';
+
+export default function TicketList() {
+  const [tickets, setTickets] = useState([]);
+  const { userToken } = useAuth();
+
+  useEffect(() => {
+    const fetchTickets = async () => {
+      const data = await getTickets(userToken);
+      setTickets(data);
+    };
+    fetchTickets();
+  }, []);
+
+  return (
+    <View className="p-4">
+      <Text className="text-xl font-bold mb-4">Tickets</Text>
+      <FlatList
+        data={tickets}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
+          <TouchableOpacity className="p-4 border-b border-gray-200">
+            <Text className="font-bold">{item.title}</Text>
+            <Text>{item.status}</Text>
+          </TouchableOpacity>
+        )}
+      />
+    </View>
+  );
+}
+```
+
+---
+
+## **Step 4: Connect Frontend to Backend**
+### **1. Set Up JWT Authentication**
+- Use `axios` to send requests with `Authorization: Bearer <token>`.  
+- Store JWT token in `AsyncStorage`.  
+
+### **2. Test API Calls**
+- Use Postman to verify:  
+  - `POST /api/tickets/` (Create ticket)  
+  - `GET /api/tickets/` (List tickets)  
+
+---
+
+## **Step 5: Database Schema (PostgreSQL)**
+### **Final ER Diagram**
+```
+┌───────────┐       ┌───────────┐       ┌───────────┐
+│  User     │       │  Ticket   │       │  Comment  │
+├───────────┤       ├───────────┤       ├───────────┤
+│ id (PK)   │←─────→│ id (PK)   │←─────→│ id (PK)   │
+│ username  │       │ title     │       │ text      │
+│ email     │       │ status    │       │ created_at│
+│ password  │       │ priority  │       └───────────┘
+└───────────┘       │ created_by│
+                    │ assigned_to│
+                    └───────────┘
+```
+
+---
+
+## **Next Steps**
+1. **Implement Authentication** (Login/Register screens).  
+2. **Add Real-Time Updates** (WebSockets with Django Channels).  
+3. **Deploy Backend** (AWS/GCP).  
+4. **Build Mobile App** (Expo EAS for iOS/Android).  
+
+Would you like a **deep dive** into any specific part (e.g., JWT auth, WebSockets)? 🚀
+
+
+
+Database  - User 
+            - role
+            - username
+            - email
+            - password
+
+          - Store
+            - name 
+            - admin
+            - engineer (User)
+            - location
+
+          - Issue
+            - store
+            - title
+            - description
+            - priority
+            - created_at
+            - status
+          
+          - Resolutions
+            - ticket_id
+            - issue (Issue)
+            - resolution_date
+
+          - assignment
+            - message
+            - store
+
+
+Work Flow for loggin in issues, Case one
+          - engineer login -> clicks on log issue button -> input issue information ->save data -> sends email to RSNL -> app detect RSNL response -> retreives ticket id for the issue -> create a resolution record in db table
+ 
+
+          
+            
