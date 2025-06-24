@@ -21,13 +21,13 @@ def get_user_tokens(user):
 class LoginView(views.APIView):
     permission_classes = [permissions.AllowAny]
     def post(self, request):
-        serialiser = UserSerialiser(data=request.data)
+        serialiser = LoginSerialiser(data=request.data)
         if serialiser.is_valid():
-            user = authenticate(username=serialiser.data['username'], password=serialiser.data['password'])
-            if user:
-                tokens = get_user_tokens(user)
-                return response.Response(tokens, status=status.HTTP_201_CREATED)
-            return response.Response({'error':'Invalid cridentials'}, status=status.HTTP_401_UNAUTHORIZED)
+            user = serialiser.validated_data['user']
+            tokens = get_user_tokens(user)
+            return response.Response(tokens, status=status.HTTP_201_CREATED)
+        return response.Response(serialiser.errors, status=status.HTTP_400_BAD_REQUEST)
+           
         
 class ProfileView(views.APIView):
     permission_classes = [permissions.AllowAny]

@@ -323,6 +323,585 @@ export default function TicketList() {
 
 Would you like a **deep dive** into any specific part (e.g., JWT auth, WebSockets)? 🚀
 
+# Frontend 
+# Modern Authentication System with Django, React & TailwindCSS
+
+I'll guide you through creating a complete, visually appealing authentication system with these technologies. This solution includes user registration, login, password reset, and profile management.
+
+## System Architecture
+
+```
+auth-system/
+├── backend/ (Django)
+│   ├── accounts/ (custom user app)
+│   └── backend/ (project config)
+└── frontend/ (React)
+    ├── public/
+    └── src/
+        ├── api/ (API calls)
+        ├── components/ (UI components)
+        ├── context/ (auth context)
+        └── pages/ (route pages)
+```
+
+## Part 1: Django Backend Setup
+
+### 1. Initialize Project
+
+```bash
+# Create project directory
+mkdir auth-system && cd auth-system
+
+# Set up virtual environment
+python -m venv venv
+source venv/bin/activate  # Windows: venv\Scripts\activate
+
+# Install dependencies
+pip install django djangorestframework djangorestframework-simplejwt python-dotenv pillow corsheaders
+```
+
+### 2. Create Django Project & App
+
+```bash
+django-admin startproject backend
+cd backend
+python manage.py startapp accounts
+```
+
+### 3. Configure Settings (backend/settings.py)
+
+```python
+# Add to INSTALLED_APPS
+INSTALLED_APPS = [
+    ...
+    'rest_framework',
+    'rest_framework_simplejwt',
+    'corsheaders',
+    'accounts',
+]
+
+# Middleware
+MIDDLEWARE = [
+    ...
+    'corsheaders.middleware.CorsMiddleware',
+]
+
+# Authentication
+AUTH_USER_MODEL = 'accounts.CustomUser'
+
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    )
+}
+
+# CORS (adjust for production)
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+
+# JWT Settings
+from datetime import timedelta
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}
+```
+
+### 4. Custom User Model (accounts/models.py)
+
+```python
+from django.contrib.auth.models import AbstractUser
+from django.db import models
+
+class CustomUser(AbstractUser):
+    email = models.EmailField(unique=True)
+    profile_picture = models.ImageField(upload_to='profiles/', null=True, blank=True)
+    bio = models.TextField(max_length=500, blank=True)
+    
+    USERNAME_FIELD = 'email'
+    REQUIRED_FIELDS = ['username']
+
+    def __str__(self):
+        return self.email
+```
+
+### 5. Serializers (accounts/serializers.py)
+
+```python
+from rest_framework import serializers
+from django.contrib.auth import get_user_model
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+
+User = get_user_model()
+
+class UserSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'email', 'username', 'profile_picture', 'bio']
+        extra_kwargs = {'password': {'write_only': True}}
+
+    def create(self, validated_data):
+        user = User.objects.create_user(
+            email=validated_data['email'],
+            username=validated_data['username'],
+            password=validated_data['password']
+        )
+        return user
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['email'] = user.email
+        token['username'] = user.username
+        return token
+```
+
+### 6. Views (accounts/views.py)
+
+```python
+from rest_framework import generics, permissions, status
+from rest_framework.response import Response
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import UserSerializer, CustomTokenObtainPairSerializer
+from django.contrib.auth import get_user_model
+
+User = get_user_model()
+
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    serializer_class = UserSerializer
+    permission_classes = [permissions.AllowAny]
+
+class LoginView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+
+class ProfileView(generics.RetrieveUpdateAPIView):
+    serializer_class = UserSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_object(self):
+        return self.request.user
+```
+
+### 7. URLs (accounts/urls.py)
+
+```python
+from django.urls import path
+from rest_framework_simplejwt.views import TokenRefreshView
+from .views import RegisterView, LoginView, ProfileView
+
+urlpatterns = [
+    path('register/', RegisterView.as_view(), name='register'),
+    path('login/', LoginView.as_view(), name='login'),
+    path('token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
+    path('profile/', ProfileView.as_view(), name='profile'),
+]
+```
+
+## Part 2: React Frontend with TailwindCSS
+
+### 1. Initialize React App
+
+```bash
+# From project root
+npx create-react-app frontend
+cd frontend
+
+# Install dependencies
+npm install axios react-router-dom @heroicons/react @tailwindcss/forms
+npm install -D tailwindcss postcss autoprefixer
+npx tailwindcss init -p
+```
+
+### 2. Configure Tailwind (tailwind.config.js)
+
+```javascript
+module.exports = {
+  content: [
+    "./src/**/*.{js,jsx,ts,tsx}",
+  ],
+  theme: {
+    extend: {
+      colors: {
+        primary: {
+          500: '#6366f1',
+          600: '#4f46e5',
+        },
+      },
+    },
+  },
+  plugins: [
+    require('@tailwindcss/forms'),
+  ],
+}
+```
+
+### 3. Auth Context (src/context/AuthContext.js)
+
+```javascript
+import { createContext, useContext, useState, useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
+import authApi from '../api/auth'
+
+const AuthContext = createContext()
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const [isLoading, setIsLoading] = useState(true)
+  const navigate = useNavigate()
+
+  useEffect(() => {
+    const initializeAuth = async () => {
+      const storedUser = JSON.parse(localStorage.getItem('user'))
+      
+      if (storedUser?.access) {
+        try {
+          const profile = await authApi.getProfile(storedUser.access)
+          setUser({ ...storedUser, ...profile })
+          setIsAuthenticated(true)
+        } catch (error) {
+          if (error.response?.status === 401 && storedUser.refresh) {
+            try {
+              const { access } = await authApi.refreshToken(storedUser.refresh)
+              const newUser = { ...storedUser, access }
+              localStorage.setItem('user', JSON.stringify(newUser))
+              const profile = await authApi.getProfile(access)
+              setUser({ ...newUser, ...profile })
+              setIsAuthenticated(true)
+            } catch {
+              logout()
+            }
+          } else {
+            logout()
+          }
+        }
+      }
+      setIsLoading(false)
+    }
+
+    initializeAuth()
+  }, [])
+
+  const login = async (credentials) => {
+    try {
+      const userData = await authApi.login(credentials)
+      const profile = await authApi.getProfile(userData.access)
+      setUser({ ...userData, ...profile })
+      setIsAuthenticated(true)
+      navigate('/dashboard')
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
+  const register = async (userData) => {
+    try {
+      await authApi.register(userData)
+      navigate('/login')
+      return true
+    } catch (error) {
+      return false
+    }
+  }
+
+  const logout = () => {
+    authApi.logout()
+    setUser(null)
+    setIsAuthenticated(false)
+    navigate('/login')
+  }
+
+  return (
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  )
+}
+
+export const useAuth = () => useContext(AuthContext)
+```
+
+### 4. API Client (src/api/auth.js)
+
+```javascript
+import axios from 'axios'
+
+const API_URL = 'http://localhost:8000/api/auth'
+
+const register = async (userData) => {
+  const response = await axios.post(`${API_URL}/register/`, userData)
+  return response.data
+}
+
+const login = async (credentials) => {
+  const response = await axios.post(`${API_URL}/login/`, credentials)
+  if (response.data.access) {
+    localStorage.setItem('user', JSON.stringify(response.data))
+  }
+  return response.data
+}
+
+const logout = () => {
+  localStorage.removeItem('user')
+}
+
+const getProfile = async (token) => {
+  const config = {
+    headers: { Authorization: `Bearer ${token}` }
+  }
+  const response = await axios.get(`${API_URL}/profile/`, config)
+  return response.data
+}
+
+const refreshToken = async (refreshToken) => {
+  const response = await axios.post(`${API_URL}/token/refresh/`, { refresh: refreshToken })
+  return response.data
+}
+
+export default {
+  register,
+  login,
+  logout,
+  getProfile,
+  refreshToken
+}
+```
+
+### 5. Beautiful Login Page (src/pages/Login.js)
+
+```javascript
+import { useState } from 'react'
+import { useAuth } from '../context/AuthContext'
+import { Link, useNavigate } from 'react-router-dom'
+import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline'
+
+export default function Login() {
+  const [email, setEmail] = useState('')
+  const [password, setPassword] = useState('')
+  const [error, setError] = useState('')
+  const { login } = useAuth()
+  const navigate = useNavigate()
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    const success = await login({ email, password })
+    if (!success) setError('Invalid credentials')
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl overflow-hidden w-full max-w-md">
+        <div className="bg-indigo-600 py-6 px-8">
+          <h2 className="text-2xl font-bold text-white text-center">Welcome Back</h2>
+        </div>
+        
+        <div className="p-8">
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+              {error}
+            </div>
+          )}
+          
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium text-gray-700 mb-1">
+                Email
+              </label>
+              <div className="relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <EnvelopeIcon className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  id="email"
+                  name="email"
+                  type="email"
+                  required
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-1">
+                Password
+              </label>
+              <div className="relative rounded-md shadow-sm">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <LockClosedIcon className="h-5 w-5 text-gray-400" />
+                </div>
+                <input
+                  id="password"
+                  name="password"
+                  type="password"
+                  required
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <input
+                  id="remember-me"
+                  name="remember-me"
+                  type="checkbox"
+                  className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                />
+                <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-700">
+                  Remember me
+                </label>
+              </div>
+
+              <div className="text-sm">
+                <Link to="/forgot-password" className="font-medium text-indigo-600 hover:text-indigo-500">
+                  Forgot password?
+                </Link>
+              </div>
+            </div>
+
+            <div>
+              <button
+                type="submit"
+                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+              >
+                Sign in
+              </button>
+            </div>
+          </form>
+
+          <div className="mt-6">
+            <div className="relative">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-300" />
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-white text-gray-500">Or</span>
+              </div>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-center text-sm text-gray-600">
+                Don't have an account?{' '}
+                <Link to="/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+                  Sign up
+                </Link>
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+```
+
+### 6. Protected Route (src/components/ProtectedRoute.js)
+
+```javascript
+import { useAuth } from '../context/AuthContext'
+import { Navigate, Outlet } from 'react-router-dom'
+
+export default function ProtectedRoute() {
+  const { isAuthenticated, isLoading } = useAuth()
+
+  if (isLoading) {
+    return <div className="flex justify-center items-center h-screen">Loading...</div>
+  }
+
+  return isAuthenticated ? <Outlet /> : <Navigate to="/login" replace />
+}
+```
+
+### 7. App Router (src/App.js)
+
+```javascript
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom'
+import { AuthProvider } from './context/AuthContext'
+import ProtectedRoute from './components/ProtectedRoute'
+import Login from './pages/Login'
+import Register from './pages/Register'
+import Dashboard from './pages/Dashboard'
+
+function App() {
+  return (
+    <Router>
+      <AuthProvider>
+        <Routes>
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          
+          <Route element={<ProtectedRoute />}>
+            <Route path="/" element={<Dashboard />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
+    </Router>
+  )
+}
+
+export default App
+```
+
+## Running the Application
+
+1. **Start Django Backend**:
+```bash
+cd backend
+python manage.py makemigrations
+python manage.py migrate
+python manage.py runserver
+```
+
+2. **Start React Frontend**:
+```bash
+cd ../frontend
+npm start
+```
+
+## Key Features Implemented
+
+1. **Secure JWT Authentication**:
+   - Access and refresh tokens
+   - Token rotation for enhanced security
+   - Protected routes in React
+
+2. **Modern UI with TailwindCSS**:
+   - Clean, responsive design
+   - Beautiful gradient backgrounds
+   - Consistent color scheme
+
+3. **Complete User Flow**:
+   - Registration with email and password
+   - Login with persistent sessions
+   - Protected dashboard area
+
+4. **Error Handling**:
+   - Form validation feedback
+   - Authentication error messages
+
+## Next Steps to Enhance
+
+1. Add password reset functionality
+2. Implement email verification
+3. Add social authentication (Google, Facebook)
+4. Create profile management page
+5. Add two-factor authentication
+
+This system provides a solid foundation that you can extend with additional features as needed. The combination of Django's robust backend with React's interactive frontend and Tailwind's utility-first CSS creates a modern, secure, and visually appealing authentication system.
+
 
 
 Database  - User 
