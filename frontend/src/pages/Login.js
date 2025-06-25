@@ -2,13 +2,14 @@ import { useState } from 'react'
 import { useAuth } from '../context/AuthContext'
 import { Link, useNavigate } from 'react-router-dom'
 import { EnvelopeIcon, LockClosedIcon } from '@heroicons/react/24/outline'
+import DrTechLogo from '../assets/DrTechLogo.png';
 
 export default function Login() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
   const { login } = useAuth()
-  const navigate = useNavigate()
+  
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -18,10 +19,11 @@ export default function Login() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl shadow-xl overflow-hidden w-full max-w-md">
-        <div className="bg-indigo-600 py-6 px-8">
-          <h2 className="text-2xl font-bold text-white text-center">Dr Technology</h2>
+    <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="bg-white  shadow-xl overflow-hidden w-full max-w-md">
+        <div className="pt-8 px-8">
+          <img src={DrTechLogo} className='mx-auto' alt='DrTechLogo'/>
+          
         </div>
         
         <div className="p-8">
@@ -45,7 +47,7 @@ export default function Login() {
                   name="email"
                   type="email"
                   required
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300  focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -66,7 +68,7 @@ export default function Login() {
                   name="password"
                   type="password"
                   required
-                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
+                  className="block w-full pl-10 pr-3 py-2 border border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500"
                   placeholder="••••••••"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -97,7 +99,7 @@ export default function Login() {
             <div>
               <button
                 type="submit"
-                className="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+                className="w-full flex justify-center py-2 px-4 border border-transparent shadow-sm text-sm font-medium text-white bg-blue-800 hover:bg-blue-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
               >
                 Sign in
               </button>

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import authApi from '../api/auth'
 
@@ -42,18 +42,30 @@ export const AuthProvider = ({ children }) => {
     initializeAuth()
   }, [])
 
+  const getProfile = useCallback(async (token) => {
+    try {
+      const profile = await authApi.getProfile(token);
+      setUser((prevUser) => ({ ...prevUser, ...profile }));
+      return profile.data;
+    } catch (error) {
+      console.log(error);
+      throw error; // Make sure to throw the error so it can be caught by the caller
+    }
+  }, []); 
+
   const login = async (credentials) => {
     try {
-      const userData = await authApi.login(credentials)
-      const profile = await authApi.getProfile(userData.access)
-      setUser({ ...userData, ...profile })
-      setIsAuthenticated(true)
-      navigate('/')
-      return true
+      const userData = await authApi.login(credentials);
+      const profile = await getProfile(userData.access); // Use the memoized getProfile
+      localStorage.setItem('user', JSON.stringify(userData)); // Store user data
+      setUser({ ...userData, ...profile });
+      setIsAuthenticated(true);
+      navigate('/');
+      return true;
     } catch (error) {
-      return false
+      return false;
     }
-  }
+  };
 
   const register = async (userData) => {
     try {
@@ -66,14 +78,15 @@ export const AuthProvider = ({ children }) => {
   }
 
   const logout = () => {
-    authApi.logout()
-    setUser(null)
-    setIsAuthenticated(false)
-    navigate('/login')
-  }
+    authApi.logout();
+    localStorage.removeItem('user'); // Clear stored user data
+    setUser(null);
+    setIsAuthenticated(false);
+    navigate('/login');
+  };
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated, isLoading, login, register, logout, getProfile }}>
       {children}
     </AuthContext.Provider>
   )
