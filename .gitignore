@@ -9,6 +9,11 @@ idea.txt
 credentials.json
 token.json
 
+.git/filter-repo/replacements.txt
+redacted.txt
+replacements.txt
+
+
 # Django stuff:
 *.log
 local_settings.py
