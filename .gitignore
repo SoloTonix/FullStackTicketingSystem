@@ -5,6 +5,8 @@ __pycache__/
 
 # My files
 idea.txt
+credentials.json
+token.json
 
 # Django stuff:
 *.log

@@ -1,56 +1,87 @@
 import os
 import base64
+import time
+import re
+from datetime import datetime
+from pathlib import Path
+from dotenv import load_dotenv
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
-import time
-from datetime import datetime
-import re
 
 # Django setup
 import django
 import sys
 
-sys.path.append('C:/Users/solomon/Desktop/TicketSys/backend')
+# Load environment variables first
+load_dotenv()
+
+# Configure Django
+sys.path.append(str(Path.home() / 'Desktop' / 'TicketSys' / 'backend'))
 os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'backend.settings')
 django.setup()
 
-from emails.models import Mails  # Import your model
+from emails.models import Mails
 
-
-# If modifying these SCOPES, delete the file token.json.
+# Configuration - Load from environment variables
 SCOPES = ['https://www.googleapis.com/auth/gmail.readonly']
+CHECK_INTERVAL = int(os.getenv('CHECK_INTERVAL', 60))
+MAX_RESULTS = int(os.getenv('MAX_RESULTS', 10))
+CREDENTIALS_PATH = os.getenv('CREDENTIALS_PATH', 'credentials.json')
+REDIRECT_URI = os.getenv('REDIRECT_URI', 'http://localhost:8080/')
 
-# Configuration
-CHECK_INTERVAL = 60  # seconds between checks
-MAX_RESULTS = 10     # number of emails to check each time
-CREDENTIALS_PATH = os.path.join(os.path.dirname(__file__), 'credentials.json')
+# Security-sensitive configuration
+TOKEN_PATH = os.getenv('TOKEN_PATH', 'token.json')
 
-# Criteria for messages of interest (customize these)
-INTERESTING_SENDERS = ['solomonokuneye1developer@gmail.com']
-INTERESTING_KEYWORDS = ['Ticket', 'ID']
-INTERESTING_SUBJECTS = ['Caution']
+# Email filtering criteria - could move to Django settings
+INTERESTING_SENDERS = os.getenv('INTERESTING_SENDERS', 'solomonokuneye1developer@gmail.com').split(',')
+INTERESTING_KEYWORDS = os.getenv('INTERESTING_KEYWORDS', 'Ticket,ID').split(',')
+INTERESTING_SUBJECTS = os.getenv('INTERESTING_SUBJECTS', 'Caution').split(',')
 
 def get_gmail_service():
     """Authenticate and return the Gmail API service."""
     creds = None
-    # The file token.json stores the user's access and refresh tokens
-    if os.path.exists('token.json'):
-        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
     
-    # If there are no (valid) credentials available, let the user log in.
+    # Load existing credentials if they exist
+    if os.path.exists(TOKEN_PATH):
+        try:
+            creds = Credentials.from_authorized_user_file(TOKEN_PATH, SCOPES)
+        except Exception as e:
+            print(f"Error loading credentials: {e}")
+            os.remove(TOKEN_PATH)  # Remove corrupted token file
+    
+    # Handle credential refresh or new auth flow
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            flow = InstalledAppFlow.from_client_secrets_file(
-                CREDENTIALS_PATH, SCOPES, redirect_uri='http://localhost:8080/')
-            creds = flow.run_local_server(port=8080)
+            try:
+                creds.refresh(Request())
+            except Exception as e:
+                print(f"Error refreshing token: {e}")
+                creds = None
         
-        # Save the credentials for the next run
-        with open('token.json', 'w') as token:
-            token.write(creds.to_json())
+        if not creds:
+            try:
+                flow = InstalledAppFlow.from_client_secrets_file(
+                    CREDENTIALS_PATH, 
+                    SCOPES,
+                    redirect_uri=REDIRECT_URI
+                )
+                creds = flow.run_local_server(
+                    port=int(REDIRECT_URI.split(':')[-1].strip('/')),
+                    authorization_prompt_message='Please visit this URL: {url}',
+                    success_message='Authentication complete. You may close this tab.',
+                    open_browser=True
+                )
+                
+                # Save the credentials securely
+                with open(TOKEN_PATH, 'w') as token:
+                    token.write(creds.to_json())
+                os.chmod(TOKEN_PATH, 0o600)  # Restrict file permissions
+                    
+            except Exception as e:
+                print(f"Authentication failed: {e}")
+                raise
     
     return build('gmail', 'v1', credentials=creds)
 
