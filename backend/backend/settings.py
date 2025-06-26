@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     # created apps
     'users',
     'tickets',
+    'emails',
     # Installed apps
     'rest_framework',
     'rest_framework_simplejwt',
